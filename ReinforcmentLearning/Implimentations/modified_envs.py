@@ -89,7 +89,10 @@ class CartPoleEnv(gym.Env):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
-    def step(self, action):
+    def set_state(self, in_state):
+        self.state = in_state
+        
+    def step(self, action,):
         err_msg = "%r (%s) invalid" % (action, type(action))
         assert self.action_space.contains(action), err_msg
 
@@ -123,10 +126,12 @@ class CartPoleEnv(gym.Env):
             or theta < -self.theta_threshold_radians
             or theta > self.theta_threshold_radians
         )
-        dist_err = self.target_weight*(self.target_location - self.state[0])**2
+        # dist_err = self.target_weight*(self.target_location - self.state[0])**2
         if not done:
-            reward = 1.0 - dist_err
+            reward = 1.0
+        #     reward = 1.0 - dist_err
             
+        
         elif self.steps_beyond_done is None:
             # Pole just fell!
             self.steps_beyond_done = 0
