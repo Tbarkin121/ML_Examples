@@ -66,10 +66,10 @@ def create_environment(n_env):
     return env, num_obs, num_actions
 #%%
 
-env, num_obs, num_actions = create_environment(n_env = 1)
+env, num_obs, num_actions = create_environment(n_env = 100)
 eval_env = CartPoleEnv()
 
-agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 10000)
+agent = ACER(num_actions, num_obs, batch_size=10000, num_env=env.num_envs, replay_buffer_size = 100000)
 agent.reset_experience_replay()
 #%%
 t = time.time()
@@ -78,8 +78,9 @@ print('elapsed time = {}'.format(time.time()-t))
 
 
 min_episodes_criterion = 100
-max_episodes = 500
-reward_threshold = 495
+max_episodes = 100000
+episode_length = 10000
+reward_threshold = episode_length-5
 running_reward = 0
 
 reward_metric = tf.keras.metrics.Mean('reward', dtype=tf.float32)
@@ -91,54 +92,54 @@ episodes_reward: collections.deque = collections.deque(maxlen=min_episodes_crite
 with tqdm.trange(max_episodes) as t:
     with summary_writer.as_default():
         for i in t:
-            agent.take_n_steps(env, 100)
+            agent.take_n_steps(env, 20)
             for _ in range(10):
-                 agent.train()
-            tf.summary.scalar('actor_loss', agent.actor_loss_metric.result(), step=i)
-            tf.summary.scalar('critic_loss', agent.critic_loss_metric.result(), step=i)
-            # tf.summary.scalar('logits1', agent.logits1_metric.result(), step=i)
-            # tf.summary.scalar('logits2', agent.logits2_metric.result(), step=i)
-            # tf.summary.scalar('probs1', agent.probs1_metric.result(), step=i)
-            # tf.summary.scalar('probs2', agent.probs2_metric.result(), step=i)
-            agent.actor_loss_metric.reset_states()
-            agent.critic_loss_metric.reset_states()
-            # agent.logits1_metric.reset_states()
-            # agent.logits2_metric.reset_states()
-            # agent.probs1_metric.reset_states()
-            # agent.probs2_metric.reset_states()
-    
-            episode_reward = 0
-            state = tf.constant(eval_env.reset(), dtype=tf.float32)
-            state = tf.expand_dims(state, 0)
-            logits = agent.actor(state)
-            probs = tf.nn.softmax(logits)
-            log_probs = tf.math.log(probs)
-            for _ in range(500):
-                action = agent.act(state, deterministic=True)
-                state, reward, done, _ = eval_env.step(action.numpy())
-                state = tf.expand_dims(state, 0)
-                episode_reward += reward
-                if (tf.cast(done, tf.bool)):
-                    eval_env.reset()
-                    break
-            reward_metric(episode_reward)
-            tf.summary.scalar('episode reward', reward_metric.result(), step=i)
-            reward_metric.reset_states()
-
-            episodes_reward.append(episode_reward)
-            running_reward = statistics.mean(episodes_reward)
-            t.set_description(f'Episode {i}')
-            t.set_postfix(episode_reward=episode_reward, running_reward=running_reward)
-
-            # Show average episode reward every 10 episodes
+                  agent.train()
+                 
+            # Run an episode to test
             if i % 10 == 0:
-              pass
-              # print(f'Episode {i}: average reward: {avg_reward}')
+                tf.summary.scalar('actor_loss', agent.actor_loss_metric.result(), step=i)
+                tf.summary.scalar('critic_loss', agent.critic_loss_metric.result(), step=i)
+                # tf.summary.scalar('logits1', agent.logits1_metric.result(), step=i)
+                # tf.summary.scalar('logits2', agent.logits2_metric.result(), step=i)
+                # tf.summary.scalar('probs1', agent.probs1_metric.result(), step=i)
+                # tf.summary.scalar('probs2', agent.probs2_metric.result(), step=i)
+                agent.actor_loss_metric.reset_states()
+                agent.critic_loss_metric.reset_states()
+                # agent.logits1_metric.reset_states()
+                # agent.logits2_metric.reset_states()
+                # agent.probs1_metric.reset_states()
+                # agent.probs2_metric.reset_states()
+        
+                episode_reward = 0
+                state = tf.constant(eval_env.reset(), dtype=tf.float32)
+                state = tf.expand_dims(state, 0)
+                logits = agent.actor(state)
+                probs = tf.nn.softmax(logits)
+                log_probs = tf.math.log(probs)
+                for _ in range(episode_length):
+                    action = agent.act(state, deterministic=True)
+                    state, reward, done, _ = eval_env.step(action.numpy())
+                    state = tf.expand_dims(state, 0)
+                    episode_reward += reward
+                    if (tf.cast(done, tf.bool)):
+                        eval_env.reset()
+                        break
+                reward_metric(episode_reward)
+                tf.summary.scalar('episode reward', reward_metric.result(), step=i)
+                reward_metric.reset_states()
+    
+                episodes_reward.append(episode_reward)
+                running_reward = statistics.mean(episodes_reward)
+                t.set_description(f'Episode {i}')
+                t.set_postfix(episode_reward=episode_reward, running_reward=running_reward)
 
             if running_reward > reward_threshold and i >= min_episodes_criterion:  
               break
     print(f'\nSolved at episode {i}: average reward: {running_reward:.2f}!')
-
+    
+agent.actor.save('logs/models/actor_model')
+agent.critic.save('logs/models/critic_model')
 # def env_step(action: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 #   """Returns state, reward and done flag given an action."""
 
@@ -148,3 +149,38 @@ with tqdm.trange(max_episodes) as t:
 
 # def tf_env_step(action: tf.Tensor) -> List[tf.Tensor]:
 #   return tf.numpy_function(env_step, [action], [tf.float32, tf.float32, tf.int32])
+
+
+#%%
+agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 10000)
+agent.actor = tf.keras.models.load_model('logs/models/actor_model')
+agent.critic = tf.keras.models.load_model('logs/models/critic_model')
+
+#%%
+eval_env = CartPoleEnv()
+episode_reward = 0
+state_tmp = [0., 0., 25.*np.pi/180, 0.]
+eval_env.set_state(state_tmp)
+state = tf.constant(state_tmp)
+state = tf.expand_dims(state, 0)
+
+
+logits = agent.actor(state)
+probs = tf.nn.softmax(logits)
+log_probs = tf.math.log(probs)
+for _ in range(500):
+    action = agent.act(state, deterministic=True)
+    state, reward, done, _ = eval_env.step(action.numpy())
+    state = tf.expand_dims(state, 0)
+    episode_reward += reward
+    eval_env.render()
+    if (tf.cast(done, tf.bool)):
+        break
+eval_env.reset()
+eval_env.close()
+print(episode_reward)
+
+#%%
+agent.reset_envs(env)
+agent.take_n_steps(env, 100)
+print(agent.done)

@@ -64,14 +64,14 @@ class ACER():
         self.num_env=num_env
 
         #Setting up Experience Replay Buffer
-        data_length = replay_buffer_size
-        self.memory = ExperienceReplay(num_env, data_length)
+        self.traj_length = tf.cast(replay_buffer_size/num_env, tf.int64)
+        self.memory = ExperienceReplay(num_env, self.traj_length)
 
         self.a_opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
         self.c_opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
 
-        self.actor = ActorNet(self.num_actions, 32)
-        self.critic = CriticNet(self.num_actions, 32)
+        self.actor = ActorNet(self.num_actions, 64)
+        self.critic = CriticNet(self.num_actions, 64)
 
         self.actor.compile(
                     optimizer='adam')
@@ -114,13 +114,12 @@ class ACER():
     def reset_experience_replay(self):
         print('Resetting Experience Replay Buffer')
         self.memory.replay_buffer.clear()
-        pass
+        # pass
     
     def fill_experience_replay(self, env):
         print('Filling Experience Replay Buffer')
         self.reset_envs(env)
-        steps = tf.cast(self.memory.max_length/env.num_envs, tf.int32)
-        self.take_n_steps(env, n_steps = steps)
+        self.take_n_steps(env, n_steps = self.traj_length)
     
     def reset_envs(self, env):
         self.state_t1 = env.reset()
@@ -145,18 +144,20 @@ class ACER():
     # @tf.function
     def train(self):
         # print('Running 1 Training Step')
-        # # Read all elements in the replay buffer:
+
+        # Read all elements in the replay buffer:
         # print('~~~~~~~~~')
         # print('~~~~~~~~~')
         # trajectories = self.memory.replay_buffer.gather_all()
         # print("Trajectories from gather all:")
         # print(tf.nest.map_structure(lambda t: t.shape, trajectories))
         # print(trajectories)
-        # # print(trajectories[0][:,0,:]) #First index is the data type, second is [entry in batch, batch number, data number]
+        # # print(trajectories[3])
+        # print(trajectories[0][:,0,:]) #First index is the data type, second is [entry in batch, batch number, data number]
+        # print(trajectories[3][:,0,:]) #First index is the data type, second is [entry in batch, batch number, data number]
 
-        # Get one sample from the replay buffer with batch size 10 and 1 timestep:
+        # Get one sample from the replay buffer with batch size (self.batch_size) and 1 timestep:
         sample = self.memory.replay_buffer.get_next(sample_batch_size=self.batch_size, num_steps=1)
-        # print('~~~~~~~~~')
         # print('~~~~~~~~~')
         # print(sample)
         
@@ -164,7 +165,7 @@ class ACER():
         action_t1 = tf.squeeze(sample[0][1], axis=1)
         reward_t2 = tf.squeeze(sample[0][2], axis=1)
         state_t2 = tf.squeeze(sample[0][3], axis=1)
-        done = tf.squeeze(sample[0][3], axis=1)
+        done = tf.squeeze(sample[0][4], axis=1)
         # print('state_t1 = {}'.format(state_t1))
         # print('action_t1 = {}'.format(action_t1))
         # print('reward_t2 = {}'.format(reward_t2))
@@ -207,7 +208,8 @@ class ACER():
             # print('log_probs = {}'.format(log_probs))
             # print('log_probs.shape = {}'.format(log_probs.shape))
             # time.sleep(5)
-
+            
+            
             returns = (tf.cast(reward_t2, 'float32') + self.gamma*values_t2)*(1-tf.cast(done, 'float32'))
             # returns = -tf.cast(done, 'float32') + self.gamma*values_t2*(1-tf.cast(done, 'float32'))
             advantage =  returns - values_t1 
@@ -216,10 +218,16 @@ class ACER():
             # actor_loss = -log_probs*advantage
             # actor_loss = tf.math.reduce_mean(-self.I*log_probs * advantage) - 0.00001*entropy_loss
 
-            actor_loss = tf.math.reduce_mean(-log_probs * advantage) - 0.0001*entropy_loss
-            self.I *= self.gamma
-            critic_loss = 0.5*self.huber_loss(values_t1, returns)
-            # critic_loss = 0.5*tf.math.reduce_mean(advantage**2)
+            actor_loss = tf.math.reduce_mean(-log_probs * advantage) - 0.00001*entropy_loss
+            # self.I *= self.gamma
+            # critic_loss = 0.5*self.huber_loss(values_t1, returns)
+            critic_loss = 0.5*tf.math.reduce_mean(advantage**2)
+
+            # print('returns = {}'.format(returns))
+            # print('advantage = {}'.format(advantage))
+            # print('entropy_loss = {}'.format(entropy_loss))
+            # print('actor_loss = {}'.format(actor_loss))
+            # print('critic_loss = {}'.format(critic_loss))
 
             
             
