@@ -4,7 +4,7 @@ from gym.utils import seeding
 import math
 import numpy as np
 from numpy import sin, cos, pi
-
+import tensorflow as tf
 class CartPoleEnv(gym.Env):
     """
     Description:
@@ -63,7 +63,7 @@ class CartPoleEnv(gym.Env):
 
         # Angle at which to fail the episode
         self.theta_threshold_radians = 60 * 2 * math.pi / 360
-        self.x_threshold = 2.4
+        self.x_threshold = 4
 
         # Angle limit set to 2 * theta_threshold_radians so failing observation
         # is still within bounds.
@@ -84,6 +84,9 @@ class CartPoleEnv(gym.Env):
 
         self.target_location = 0.0
         self.target_weight = 0.0
+        self.total_rewards = 0.0
+        self.max_steps = 1000
+        self.curr_steps = 0
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
@@ -125,6 +128,7 @@ class CartPoleEnv(gym.Env):
             or x > self.x_threshold
             or theta < -self.theta_threshold_radians
             or theta > self.theta_threshold_radians
+            or self.max_steps < self.curr_steps
         )
         dist_err = self.target_weight*(self.target_location - self.state[0])**2
         if not done:
@@ -146,12 +150,23 @@ class CartPoleEnv(gym.Env):
                 )
             self.steps_beyond_done += 1
             reward = 0.0
-
-        return np.array(self.state), reward, done, {}
-
+        self.total_rewards += reward
+        info = {'total_rewards': self.total_rewards}
+        self.curr_steps += 1
+        # return np.array(self.state), reward, done, {}
+        return np.array(self.state), reward, done, info
+        
     def reset(self):
-        self.state = self.np_random.uniform(low=-0.5, high=0.5, size=(4,))
+        x = self.np_random.uniform(low=-2, high=2, size=1)[0]
+        x_dot = self.np_random.uniform(low=-3, high=3, size=1)[0]
+        theta = self.np_random.uniform(low=-0.5, high=0.5, size=1)[0]
+        theta_dot = self.np_random.uniform(low=-0.5, high=0.5, size=1)[0]
+        # print((x, x_dot, theta, theta_dot))
+        self.state = (x, x_dot, theta, theta_dot)
+
         self.steps_beyond_done = None
+        self.total_rewards = 0.0
+        self.curr_steps = 0
         return np.array(self.state)
 
     def render(self, mode='human'):
@@ -300,13 +315,26 @@ class AcrobotEnv(core.Env):
         self.action_space = spaces.Discrete(3)
         self.state = None
         self.seed()
+        self.total_rewards = 0.0
+        self.max_steps = 1000
+        self.curr_steps = 0
 
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
     def reset(self):
+        # x = self.np_random.uniform(low=-2, high=2, size=1)[0]
+        # x_dot = self.np_random.uniform(low=-3, high=3, size=1)[0]
+        # theta = self.np_random.uniform(low=-0.5, high=0.5, size=1)[0]
+        # theta_dot = self.np_random.uniform(low=-0.5, high=0.5, size=1)[0]
+        # # print((x, x_dot, theta, theta_dot))
+        # self.state = (x, x_dot, theta, theta_dot)
+
         self.state = self.np_random.uniform(low=-0.1, high=0.1, size=(4,))
+        self.state[0] = np.pi
+        self.total_rewards = 0.0
+        self.curr_steps = 0
         return self._get_ob()
 
     def step(self, a):
@@ -344,10 +372,16 @@ class AcrobotEnv(core.Env):
         x2 = x1 + math.sin(ns[0]+ns[1])
         y2 = y1 - math.cos(ns[0]+ns[1])
         r = y2/(self.LINK_LENGTH_1 + self.LINK_LENGTH_2)
-        reward = r 
-        if (terminal):
-          reward = 0
-        return (self._get_ob(), reward, terminal, {})
+        velocity_punishment = tf.cast((ns[2]/self.MAX_VEL_1)**2, tf.float32)
+        reward = r - velocity_punishment
+        # reward = r
+
+        self.total_rewards += reward
+        info = {'total_rewards': self.total_rewards}
+        self.curr_steps += 1
+        if(self.curr_steps > self.max_steps):
+            terminal=True
+        return (self._get_ob(), reward, terminal, info)
 
     def _get_ob(self):
         s = self.state

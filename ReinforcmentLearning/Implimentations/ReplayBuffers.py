@@ -3,7 +3,7 @@ from tf_agents.replay_buffers import tf_uniform_replay_buffer
 import numpy as np
 
 #%%
-class ExperienceReplay():
+class ExperienceReplay_Cartpole():
     def __init__(self, batch_size, max_length):
         self.batch_size = batch_size
         self.max_length = max_length
@@ -13,7 +13,8 @@ class ExperienceReplay():
             tf.TensorSpec([1], tf.int32, 'action_t1'),
             tf.TensorSpec([1], tf.float32, 'reward_t2'),
             tf.TensorSpec([4], tf.float32, 'state_t2'),
-            tf.TensorSpec([1], tf.bool, 'done')
+            tf.TensorSpec([1], tf.bool, 'done'),
+            tf.TensorSpec([1], tf.float32, 'total_reward')
         )
 
         self.replay_buffer = tf_uniform_replay_buffer.TFUniformReplayBuffer(
@@ -21,7 +22,25 @@ class ExperienceReplay():
                         batch_size=self.batch_size,
                         max_length=self.max_length)
 
-    
+#%%
+class ExperienceReplay():
+    def __init__(self, batch_size, max_length):
+        self.batch_size = batch_size
+        self.max_length = max_length
+
+        self.data_spec =  (
+            tf.TensorSpec([6], tf.float32, 'state_t1'),
+            tf.TensorSpec([1], tf.int32, 'action_t1'),
+            tf.TensorSpec([1], tf.float32, 'reward_t2'),
+            tf.TensorSpec([6], tf.float32, 'state_t2'),
+            tf.TensorSpec([1], tf.bool, 'done'),
+            tf.TensorSpec([1], tf.float32, 'total_reward')
+        )
+
+        self.replay_buffer = tf_uniform_replay_buffer.TFUniformReplayBuffer(
+                        self.data_spec,
+                        batch_size=self.batch_size,
+                        max_length=self.max_length)  
 
 # ER = ExperienceReplay(5,100)
 # state_t1 = tf.constant(

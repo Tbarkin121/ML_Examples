@@ -19,6 +19,8 @@ class ActorNet(tf.keras.Model):
     self.lr1 = layers.LeakyReLU()
     self.d2 = layers.Dense(num_hidden_units)
     self.lr2 = layers.LeakyReLU()
+    self.d3 = layers.Dense(num_hidden_units)
+    self.lr3 = layers.LeakyReLU()
     # self.a = layers.Dense(num_actions, activation='softmax')
     self.a = layers.Dense(num_actions, activation='tanh')
     # self.a = layers.Dense(num_actions, activation='sigmoid')
@@ -31,6 +33,8 @@ class ActorNet(tf.keras.Model):
     x = self.lr1(x)
     x = self.d2(x)
     x = self.lr2(x)
+    # x = self.d3(x)
+    # x = self.lr3(x)
     return self.a(x)
 
 
@@ -44,6 +48,8 @@ class CriticNet(tf.keras.Model):
     self.lr1 = layers.LeakyReLU()
     self.d2 = layers.Dense(num_hidden_units)
     self.lr2 = layers.LeakyReLU()
+    self.d3 = layers.Dense(num_hidden_units)
+    self.lr3 = layers.LeakyReLU()
     # self.critic = layers.Dense(num_actions)
     self.c = layers.Dense(1)
 
@@ -53,6 +59,8 @@ class CriticNet(tf.keras.Model):
     x = self.lr1(x)
     x = self.d2(x)
     x = self.lr2(x)
+    # x = self.d3(x)
+    # x = self.lr3(x)
     return self.c(x)
 
 class ACER():
@@ -70,8 +78,8 @@ class ACER():
         self.a_opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
         self.c_opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
 
-        self.actor = ActorNet(self.num_actions, 64)
-        self.critic = CriticNet(self.num_actions, 64)
+        self.actor = ActorNet(self.num_actions, 32)
+        self.critic = CriticNet(self.num_actions, 32)
 
         self.actor.compile(
                     optimizer='adam')
@@ -85,6 +93,7 @@ class ACER():
         # Define our metrics
         self.actor_loss_metric = tf.keras.metrics.Mean('actor_loss', dtype=tf.float32)
         self.critic_loss_metric = tf.keras.metrics.Mean('critic_loss', dtype=tf.float32)
+        self.total_reward_metric = tf.keras.metrics.Mean('total_reward', dtype=tf.float32)
         self.logits1_metric = tf.keras.metrics.Mean('logits1', dtype=tf.float32)
         self.logits2_metric = tf.keras.metrics.Mean('logits2', dtype=tf.float32)
         self.probs1_metric = tf.keras.metrics.Mean('probs1', dtype=tf.float32)
@@ -132,11 +141,15 @@ class ACER():
             # action_t1_test = np.zeros(self.num_env, dtype=int)
             self.action_t1 = self.act(self.state_t1, deterministic=False)
             env.step_async(self.action_t1.numpy())
-            self.state_t2, self.reward_t2, self.done, self.info = env.step_wait()
+            self.state_t2, self.reward_t2, self.done, total_reward_dict = env.step_wait()
             self.action_t1 = tf.cast(tf.reshape(self.action_t1, shape=(self.num_env,1)),tf.int32)
             self.reward_t2 = tf.reshape(self.reward_t2, shape=(self.num_env,1))
             self.done = tf.reshape(self.done, shape=(self.num_env,1))
-            values = (self.state_t1, self.action_t1, self.reward_t2, self.state_t2, self.done)
+
+            self.total_reward = [item['total_rewards'] for item in total_reward_dict]
+            self.total_reward = tf.reshape(self.total_reward, shape=(self.num_env,1))
+
+            values = (self.state_t1, self.action_t1, self.reward_t2, self.state_t2, self.done, self.total_reward)
             values_batched = tf.nest.map_structure(lambda t: tf.stack(t), values)
             self.memory.replay_buffer.add_batch(values_batched)
             self.state_t1 = self.state_t2
@@ -166,6 +179,21 @@ class ACER():
         reward_t2 = tf.squeeze(sample[0][2], axis=1)
         state_t2 = tf.squeeze(sample[0][3], axis=1)
         done = tf.squeeze(sample[0][4], axis=1)
+        total_reward = tf.squeeze(sample[0][5], axis=1)
+
+        # state_t1_mod = tf.concat([state_t1, -state_t1], 0)
+        # action_t1_mod = tf.concat([action_t1, 1-action_t1], 0)
+        # reward_t2_mod = tf.concat([reward_t2, reward_t2], 0)
+        # state_t2_mod = tf.concat([state_t2, -state_t2], 0)
+        # done_mod = tf.concat([done, done], 0)
+        # total_reward_mod = tf.concat([total_reward, total_reward], 0)
+        state_t1_mod = state_t1
+        action_t1_mod = action_t1
+        reward_t2_mod = reward_t2
+        state_t2_mod = state_t2
+        done_mod = done
+        total_reward_mod = total_reward
+
         # print('state_t1 = {}'.format(state_t1))
         # print('action_t1 = {}'.format(action_t1))
         # print('reward_t2 = {}'.format(reward_t2))
@@ -184,9 +212,9 @@ class ACER():
 
     
         with tf.GradientTape() as tape1, tf.GradientTape() as tape2:
-            logits = self.actor(state_t1, training=True)
-            values_t1 = self.critic(state_t1, training=True)
-            values_t2 = self.critic(state_t2, training=True)
+            logits = self.actor(state_t1_mod, training=True)
+            values_t1 = self.critic(state_t1_mod, training=True)
+            values_t2 = self.critic(state_t2_mod, training=True)
             # print('!!!!!!!!!!!!!!!!!!!!!!')
             # print('logits = {}'.format(logits))
  
@@ -200,7 +228,7 @@ class ACER():
             # self.probs1_metric(p[0])
             # self.probs2_metric(p[1])
             
-            probs_actions = tf.gather(probs, action_t1, axis=1, batch_dims=1)
+            probs_actions = tf.gather(probs, action_t1_mod, axis=1, batch_dims=1)
             log_probs = tf.math.log(probs_actions)
             # print('action_t1 = {}'.format(action_t1))
             # print('probs_actions = {}'.format(probs_actions))
@@ -210,7 +238,8 @@ class ACER():
             # time.sleep(5)
             
             
-            returns = (tf.cast(reward_t2, 'float32') + self.gamma*values_t2)*(1-tf.cast(done, 'float32'))
+            # returns = (tf.cast(reward_t2_mod, 'float32') + self.gamma*values_t2)*(1-tf.cast(done_mod, 'float32'))
+            returns = tf.cast(reward_t2_mod, 'float32') + self.gamma*values_t2
             # returns = -tf.cast(done, 'float32') + self.gamma*values_t2*(1-tf.cast(done, 'float32'))
             advantage =  returns - values_t1 
 
@@ -239,6 +268,12 @@ class ACER():
 
         self.actor_loss_metric(actor_loss)
         self.critic_loss_metric(critic_loss)
+        num_dones = tf.math.reduce_sum(tf.cast(done_mod, dtype=tf.float32) )
+        
+        if(num_dones > 0):
+            avg_batch_total_rewards = tf.math.reduce_sum(total_reward_mod*tf.cast(done_mod, tf.float32))/num_dones
+            self.total_reward_metric(avg_batch_total_rewards)
+            
 
         # return actor_loss, critic_loss
 
