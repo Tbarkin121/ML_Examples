@@ -19,12 +19,17 @@ import random
 from modified_envs import CartPoleEnv, AcrobotEnv
 from agent import ACER
 
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.utils import set_random_seed
 
+n_step=1
+t_step=1
+save_name = 'Cartpole_n{}t{}'.format(n_step,t_step)
+min_episodes_criterion = 100
+max_episodes = 10000
+
 # Set seed for experiment reproducibility
-seed = 66
-# seed = 8675309
+seed = 8675309
 tf.random.set_seed(seed)
 np.random.seed(seed)
 random.seed(seed)
@@ -32,10 +37,11 @@ random.seed(seed)
 eps = np.finfo(np.float32).eps.item()
 
 #%%
+
 def make_env(rank, seed=0):
     def _init():
-        # env = CartPoleEnv()
-        env = AcrobotEnv()
+        env = CartPoleEnv()
+        # env = AcrobotEnv()
         # env.set_target(target=1.0, weight=0.2)
         env.seed(seed + rank)
         return env
@@ -48,7 +54,7 @@ def make_env(rank, seed=0):
 def create_environment(n_env):
 
     env = DummyVecEnv([make_env(i, seed=seed) for i in range(n_env)])
-    
+    # env = VecNormalize(env, norm_obs=True, norm_reward=False, clip_obs=10.)
 
     num_obs = env.observation_space.shape[0]
     num_actions = env.action_space.n
@@ -68,43 +74,64 @@ def create_environment(n_env):
 #%%
 
 env, num_obs, num_actions = create_environment(n_env = 100)
-# eval_env = CartPoleEnv()
-eval_env = AcrobotEnv()
-agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 100000)
+eval_env = CartPoleEnv()
+# eval_env = AcrobotEnv()
+agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 1000)
 agent.reset_experience_replay()
+
 #%%
-t = time.time()
+start_time = time.time()
 agent.fill_experience_replay(env)
-# print('elapsed time = {}'.format(time.time()-t))
 
 
-min_episodes_criterion = 100
-max_episodes = 200000
-episode_length = eval_env.max_steps
-reward_threshold = episode_length-5
+reward_threshold = eval_env.max_steps-5
 running_reward = 0
 
 reward_metric = tf.keras.metrics.Mean('reward', dtype=tf.float32)
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-log_dir = 'logs/gradient_tape/' + current_time + '/grand'
+log_dir = 'logs/gradient_tape/' + save_name + '/' + current_time
 summary_writer = tf.summary.create_file_writer(log_dir)
 
 batch_mean_reward: collections.deque = collections.deque(maxlen=min_episodes_criterion)
+tot_itr = 0
+episode_reward = 0
 with tqdm.trange(max_episodes) as t:
     with summary_writer.as_default():
         for i in t:
-            agent.take_n_steps(env, 1)
-            for _ in range(1):
-                  agent.train()
+            agent.take_n_steps(env, n_step)
+            for _ in range(t_step):
+                #   agent.train()
+                agent.train_and_checkpoint()
             
+            if( i % 100 == 0 ):
+                if(True):
+                    episode_reward = 0
+                    
+                    state = eval_env.reset()
+                    state = tf.expand_dims(state, 0)
+                    for _ in range(1000):
+                        action = agent.act(state, deterministic=True)
+                        state, reward, done, _ = eval_env.step(action.numpy())
+                        state = tf.expand_dims(state, 0)
+                        episode_reward += reward
+                        # eval_env.render()
+                        if (tf.cast(done, tf.bool)):
+                            break
+                    eval_env.reset()
+                    # eval_env.close()
+                    # print(episode_reward)
+
+                    tf.summary.scalar('episode_reward', episode_reward, step=i)
+                    # print(episode_reward)
+                    
             if( i % 10 == 0 ):
                 tf.summary.scalar('actor_loss', agent.actor_loss_metric.result(), step=i)
                 tf.summary.scalar('critic_loss', agent.critic_loss_metric.result(), step=i)
                 agent.actor_loss_metric.reset_states()
                 agent.critic_loss_metric.reset_states()
-        
                 batch_mean_end_reward = agent.total_reward_metric.result().numpy()
                 tf.summary.scalar('batch_mean_end_reward', batch_mean_end_reward, step=i)
+                
                 batch_mean_reward.append(batch_mean_end_reward)
                 agent.total_reward_metric.reset_states()
 
@@ -112,24 +139,22 @@ with tqdm.trange(max_episodes) as t:
             running_reward = statistics.mean(batch_mean_reward)
 
             t.set_description(f'Episode {i}')
-            t.set_postfix(batch_mean_end_reward=batch_mean_end_reward, running_reward=running_reward)
-
-            if running_reward > reward_threshold and i >= min_episodes_criterion:  
-              break
+            t.set_postfix(batch_mean_end_reward=batch_mean_end_reward, episode_reward=episode_reward, running_reward=running_reward)
+            tot_itr=i+1
+            if running_reward > reward_threshold and i >= min_episodes_criterion:
+                break
     print(f'\nSolved at episode {i}: average reward: {running_reward:.2f}!')
-    
-agent.actor.save('logs/models/actor_model')
-agent.critic.save('logs/models/critic_model')
-# def env_step(action: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-#   """Returns state, reward and done flag given an action."""
 
-#   state, reward, done, _ = env.step(action)
-#   return (state.astype(np.float32), np.array(reward, np.float32), np.array(done, np.int32))
+agent.actor.save('logs/models/'+save_name+'/actor_model')
+agent.critic.save('logs/models/'+save_name+'/critic_model')
 
+e_time = time.time()-start_time
+print('elapsed time = {}'.format(e_time))
 
-# def tf_env_step(action: tf.Tensor) -> List[tf.Tensor]:
-#   return tf.numpy_function(env_step, [action], [tf.float32, tf.float32, tf.int32])
-
+file = open('logs/models/'+save_name+'/info.txt', "w")
+text_too_write = 'runtime={}\ntotal_itr={}'.format(e_time, tot_itr)
+file.write(text_too_write)
+file.close()
 
 #%%
 #print(agent.total_reward[0]['total_rewards'])
@@ -141,24 +166,26 @@ agent.critic.save('logs/models/critic_model')
 # agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 10000)
 # agent.actor = tf.keras.models.load_model('logs/models/actor_model')
 # agent.critic = tf.keras.models.load_model('logs/models/critic_model')
-
+print(agent.manager.checkpoints) 
 #%%
-for _ in range(10):
-    eval_env = AcrobotEnv()
+agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 1000)
+
+agent.load_checkpoint('ckpt-98')
+for _ in range(1):
+    eval_env = CartPoleEnv()
     episode_reward = 0
     
-    # state_tmp = [0., -2.5, 0*np.pi/180, 0.]
-    # eval_env.set_state(state_tmp)
-    # state = tf.constant(state_tmp)
+    state_tmp = [0, 0, 5*np.pi/180, 0.]
+    eval_env.set_state(state_tmp)
+    state = tf.constant(state_tmp)
     
-    state = eval_env.reset()
+    # state = eval_env.reset()
     state = tf.expand_dims(state, 0)
-    
     
     logits = agent.actor(state)
     probs = tf.nn.softmax(logits)
     log_probs = tf.math.log(probs)
-    for _ in range(250):
+    for _ in range(400):
         action = agent.act(state, deterministic=True)
         state, reward, done, _ = eval_env.step(action.numpy())
         state = tf.expand_dims(state, 0)
@@ -171,6 +198,61 @@ for _ in range(10):
     print(episode_reward)
 
 #%%
-agent.reset_envs(env)
-agent.take_n_steps(env, 100)
-print(agent.done)
+
+from PIL import Image
+import moviepy.editor as mp
+from datetime import datetime
+try:
+    os.mkdir('logs/videos/'+save_name+'/')
+except OSError as error:
+    print(error)
+    
+def render_episode(env: gym.Env, model: tf.keras.Model, max_steps: int, angle: float, velocity: float): 
+      screen = eval_env.render(mode='rgb_array')
+      im = Image.fromarray(screen)
+    
+      images = [im]
+    
+      eval_env.reset()
+      state_tmp = [0, velocity, angle*np.pi/180, 0.]
+      eval_env.set_state(state_tmp)
+      state = tf.constant(state_tmp)
+      state = tf.expand_dims(state, 0)
+      for i in range(1, 500 + 1):
+    
+        action = agent.act(state, deterministic=True)
+        # action = agent.act(state, deterministic=False)
+        state, reward, done, _ = eval_env.step(action.numpy())
+        state = tf.expand_dims(state, 0)
+        # Render screen every n steps
+        n=1
+        if i % n == 0:
+          screen = eval_env.render(mode='rgb_array')
+          images.append(Image.fromarray(screen))
+    
+        if done:
+          break
+    
+      return images
+
+for v in [0, 1]: 
+    for a in [10, 15, 20]:
+        
+        eval_env = CartPoleEnv()
+        eval_env.reset()
+        # screen = eval_env.render(mode='rgb_array')
+        # print(screen)
+    
+        # Save GIF image
+        images = render_episode(env, agent.actor, 100, angle=a, velocity=v)
+        
+        image_file = 'logs/videos/'+save_name+'/a{}_v{}.gif'.format(a, v)
+        video_file = 'logs/videos/'+save_name+'/a{}_v{}.mp4'.format(a, v)
+        # loop=0: loop forever, duration=1: play each frame for 1ms
+        images[0].save(
+            image_file, save_all=True, append_images=images[1:], loop=0, duration=1)
+        clip = mp.VideoFileClip(image_file)
+        clip.write_videofile(video_file)
+        eval_env.close()
+        
+

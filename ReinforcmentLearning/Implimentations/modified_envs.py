@@ -63,7 +63,7 @@ class CartPoleEnv(gym.Env):
 
         # Angle at which to fail the episode
         self.theta_threshold_radians = 60 * 2 * math.pi / 360
-        self.x_threshold = 4
+        self.x_threshold = 2
 
         # Angle limit set to 2 * theta_threshold_radians so failing observation
         # is still within bounds.
@@ -157,10 +157,10 @@ class CartPoleEnv(gym.Env):
         return np.array(self.state), reward, done, info
         
     def reset(self):
-        x = self.np_random.uniform(low=-2, high=2, size=1)[0]
-        x_dot = self.np_random.uniform(low=-3, high=3, size=1)[0]
-        theta = self.np_random.uniform(low=-0.5, high=0.5, size=1)[0]
-        theta_dot = self.np_random.uniform(low=-0.5, high=0.5, size=1)[0]
+        x = self.np_random.uniform(low=-0.1, high=0.1, size=1)[0]
+        x_dot = self.np_random.uniform(low=-1.5, high=1.5, size=1)[0]
+        theta = self.np_random.uniform(low=-20*np.pi/180, high=20*np.pi/180, size=1)[0]
+        theta_dot = self.np_random.uniform(low=-0.1, high=0.1, size=1)[0]
         # print((x, x_dot, theta, theta_dot))
         self.state = (x, x_dot, theta, theta_dot)
 
@@ -332,7 +332,7 @@ class AcrobotEnv(core.Env):
         # self.state = (x, x_dot, theta, theta_dot)
 
         self.state = self.np_random.uniform(low=-0.1, high=0.1, size=(4,))
-        self.state[0] = np.pi
+        # self.state[0] = np.pi
         self.total_rewards = 0.0
         self.curr_steps = 0
         return self._get_ob()
@@ -363,8 +363,11 @@ class AcrobotEnv(core.Env):
         ns[2] = bound(ns[2], -self.MAX_VEL_1, self.MAX_VEL_1)
         ns[3] = bound(ns[3], -self.MAX_VEL_2, self.MAX_VEL_2)
         self.state = ns
-        # terminal = self._terminal()
-        terminal = False
+
+        terminal = self._terminal()
+        reward = 0. if not terminal else 1.
+        
+        # terminal = False
         x0 = 0
         y0 = 0
         x1 = x0 + math.sin(ns[0])
@@ -372,9 +375,9 @@ class AcrobotEnv(core.Env):
         x2 = x1 + math.sin(ns[0]+ns[1])
         y2 = y1 - math.cos(ns[0]+ns[1])
         r = y2/(self.LINK_LENGTH_1 + self.LINK_LENGTH_2)
-        velocity_punishment = tf.cast((ns[2]/self.MAX_VEL_1)**2, tf.float32)
-        reward = r - velocity_punishment
-        # reward = r
+        # velocity_punishment = tf.cast((ns[2]/self.MAX_VEL_1)**2, tf.float32)
+        # reward = r - velocity_punishment
+        reward += r
 
         self.total_rewards += reward
         info = {'total_rewards': self.total_rewards}

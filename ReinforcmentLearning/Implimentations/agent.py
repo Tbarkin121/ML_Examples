@@ -4,7 +4,7 @@ from typing import Any, List, Sequence, Tuple
 from ExperienceReplay import ER_Buffer
 from collections import deque
 
-from ReplayBuffers import ExperienceReplay
+from ReplayBuffers import ExperienceReplay_Cartpole
 import time
 
 import numpy as np
@@ -33,8 +33,8 @@ class ActorNet(tf.keras.Model):
     x = self.lr1(x)
     x = self.d2(x)
     x = self.lr2(x)
-    # x = self.d3(x)
-    # x = self.lr3(x)
+    x = self.d3(x)
+    x = self.lr3(x)
     return self.a(x)
 
 
@@ -59,8 +59,8 @@ class CriticNet(tf.keras.Model):
     x = self.lr1(x)
     x = self.d2(x)
     x = self.lr2(x)
-    # x = self.d3(x)
-    # x = self.lr3(x)
+    x = self.d3(x)
+    x = self.lr3(x)
     return self.c(x)
 
 class ACER():
@@ -73,7 +73,7 @@ class ACER():
 
         #Setting up Experience Replay Buffer
         self.traj_length = tf.cast(replay_buffer_size/num_env, tf.int64)
-        self.memory = ExperienceReplay(num_env, self.traj_length)
+        self.memory = ExperienceReplay_Cartpole(num_env, self.traj_length)
 
         self.a_opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
         self.c_opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
@@ -101,6 +101,11 @@ class ACER():
         
         # train_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('train_accuracy')
         # test_accuracy = tf.keras.metrics.SparseCategoricalAccuracy('test_accuracy')
+
+        # Checkpointing
+        self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), actor_optimizer=self.a_opt, actor_net=self.actor, critic_optimizer=self.c_opt, critic_net=self.critic)
+        self.manager = tf.train.CheckpointManager(self.ckpt, './ac_ckpts', max_to_keep=100)
+
           
     def act(self, state, deterministic=False):
         logits = self.actor(state)
@@ -133,6 +138,15 @@ class ACER():
     def reset_envs(self, env):
         self.state_t1 = env.reset()
 
+    # def env_step(action: np.ndarray, env) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    #   """Returns state, reward and done flag given an action."""
+
+    #   state, reward, done, _ = env.step(action)
+    #   return (state.astype(np.float32), np.array(reward, np.float32), np.array(done, np.int32))
+
+    # def tf_env_step(action: tf.Tensor, env) -> List[tf.Tensor]:
+    #   return tf.numpy_function(env_step, [action, env], [tf.float32, tf.float32, tf.int32])
+
     def take_n_steps(self, env, n_steps=1):
         # print('Filling Experience Replay Buffer')
         # print(env.num_envs)
@@ -144,7 +158,7 @@ class ACER():
             self.state_t2, self.reward_t2, self.done, total_reward_dict = env.step_wait()
             self.action_t1 = tf.cast(tf.reshape(self.action_t1, shape=(self.num_env,1)),tf.int32)
             self.reward_t2 = tf.reshape(self.reward_t2, shape=(self.num_env,1))
-            self.done = tf.reshape(self.done, shape=(self.num_env,1))
+            self.done = tf.cast(tf.reshape(self.done, shape=(self.num_env,1)), dtype=tf.float32)
 
             self.total_reward = [item['total_rewards'] for item in total_reward_dict]
             self.total_reward = tf.reshape(self.total_reward, shape=(self.num_env,1))
@@ -154,7 +168,7 @@ class ACER():
             self.memory.replay_buffer.add_batch(values_batched)
             self.state_t1 = self.state_t2
 
-    # @tf.function
+    @tf.function
     def train(self):
         # print('Running 1 Training Step')
 
@@ -181,18 +195,18 @@ class ACER():
         done = tf.squeeze(sample[0][4], axis=1)
         total_reward = tf.squeeze(sample[0][5], axis=1)
 
-        # state_t1_mod = tf.concat([state_t1, -state_t1], 0)
-        # action_t1_mod = tf.concat([action_t1, 1-action_t1], 0)
-        # reward_t2_mod = tf.concat([reward_t2, reward_t2], 0)
-        # state_t2_mod = tf.concat([state_t2, -state_t2], 0)
-        # done_mod = tf.concat([done, done], 0)
-        # total_reward_mod = tf.concat([total_reward, total_reward], 0)
-        state_t1_mod = state_t1
-        action_t1_mod = action_t1
-        reward_t2_mod = reward_t2
-        state_t2_mod = state_t2
-        done_mod = done
-        total_reward_mod = total_reward
+        state_t1_mod = tf.concat([state_t1, -state_t1], 0)
+        action_t1_mod = tf.concat([action_t1, 1-action_t1], 0)
+        reward_t2_mod = tf.concat([reward_t2, reward_t2], 0)
+        state_t2_mod = tf.concat([state_t2, -state_t2], 0)
+        done_mod = tf.concat([done, done], 0)
+        total_reward_mod = tf.concat([total_reward, total_reward], 0)
+        # state_t1_mod = state_t1
+        # action_t1_mod = action_t1
+        # reward_t2_mod = reward_t2
+        # state_t2_mod = state_t2
+        # done_mod = done
+        # total_reward_mod = total_reward
 
         # print('state_t1 = {}'.format(state_t1))
         # print('action_t1 = {}'.format(action_t1))
@@ -235,11 +249,11 @@ class ACER():
             # print('probs_actions.shape = {}'.format(probs_actions.shape))
             # print('log_probs = {}'.format(log_probs))
             # print('log_probs.shape = {}'.format(log_probs.shape))
-            # time.sleep(5)
             
             
-            # returns = (tf.cast(reward_t2_mod, 'float32') + self.gamma*values_t2)*(1-tf.cast(done_mod, 'float32'))
-            returns = tf.cast(reward_t2_mod, 'float32') + self.gamma*values_t2
+            returns = (reward_t2_mod + self.gamma*values_t2)*(1-done_mod)
+            # returns = reward_t2_mod + (self.gamma*values_t2)*(1-done_mod)
+            # returns = tf.cast(reward_t2_mod, 'float32') + self.gamma*values_t2
             # returns = -tf.cast(done, 'float32') + self.gamma*values_t2*(1-tf.cast(done, 'float32'))
             advantage =  returns - values_t1 
 
@@ -269,14 +283,39 @@ class ACER():
         self.actor_loss_metric(actor_loss)
         self.critic_loss_metric(critic_loss)
         num_dones = tf.math.reduce_sum(tf.cast(done_mod, dtype=tf.float32) )
-        
+
         if(num_dones > 0):
-            avg_batch_total_rewards = tf.math.reduce_sum(total_reward_mod*tf.cast(done_mod, tf.float32))/num_dones
+            # print('num_dones = {}'.format(num_dones))
+            # print('total_reward_mod = {}'.format(total_reward_mod))
+            # print((total_reward_mod*done_mod)/num_dones)
+            avg_batch_total_rewards = tf.math.reduce_sum(total_reward_mod*done_mod)/num_dones
+            # print('avg_batch_total_rewards = {}'.format(avg_batch_total_rewards))
             self.total_reward_metric(avg_batch_total_rewards)
             
 
         # return actor_loss, critic_loss
 
+    def load_checkpoint(self, path=None):
+        if(path is None):
+            #Try and load the latest checkpoint if it exists
+            self.ckpt.restore(self.manager.latest_checkpoint)
+            if self.manager.latest_checkpoint:
+                print("Restored from {}".format(self.manager.latest_checkpoint))
+            else:
+                print("Initializing from scratch.")
+        else:
+            #Try and load the specified checkpoint if it exists
+            self.ckpt.restore(path)
+            print("Restored from path {}".format(path))
+
+
+    def train_and_checkpoint(self, save_freq = 100):
+        self.ckpt.step.assign_add(1)
+        if int(self.ckpt.step) % save_freq == 0:
+            save_path = self.manager.save()
+            print("Saved AC checkpoint for step {}: {}".format(int(self.ckpt.step), save_path))
+        
+        self.train()
 
 # from loss_functions import ActorLoss
 # class ACER2():

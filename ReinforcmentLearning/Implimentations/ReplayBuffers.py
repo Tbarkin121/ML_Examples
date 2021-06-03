@@ -13,7 +13,7 @@ class ExperienceReplay_Cartpole():
             tf.TensorSpec([1], tf.int32, 'action_t1'),
             tf.TensorSpec([1], tf.float32, 'reward_t2'),
             tf.TensorSpec([4], tf.float32, 'state_t2'),
-            tf.TensorSpec([1], tf.bool, 'done'),
+            tf.TensorSpec([1], tf.float32, 'done'),
             tf.TensorSpec([1], tf.float32, 'total_reward')
         )
 
