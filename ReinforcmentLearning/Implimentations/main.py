@@ -22,11 +22,47 @@ from agent import ACER
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.utils import set_random_seed
 
-n_step=1
+
+n_step=10
 t_step=1
-save_name = 'Cartpole_n{}t{}'.format(n_step,t_step)
 min_episodes_criterion = 100
-max_episodes = 10000
+max_episodes = 25000
+current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+log_dir = 'logs'
+test_name = 'Cartpole_n{}t{}'.format(n_step,t_step)
+test_path = os.path.join(log_dir, test_name)
+ckpt_path = os.path.join(test_path, 'ckpts')
+train_log_path = os.path.join(test_path, 'training_log', current_time)
+model_path = os.path.join(test_path, 'models')
+video_path = os.path.join(test_path, 'videos')
+print(video_path)
+try:
+    os.makedirs(test_path)
+except OSError as error:    
+    pass
+    # print(error)
+try:
+    os.makedirs(ckpt_path)
+except OSError as error:
+    pass
+    # print(error)
+try:
+    os.makedirs(train_log_path)
+except OSError as error:
+    pass
+    # print(error)
+try:
+    os.makedirs(model_path)
+except OSError as error:
+    pass
+    # print(error)
+try:
+    os.makedirs(video_path)
+except OSError as error:
+    pass
+    # print(error)
+
 
 # Set seed for experiment reproducibility
 seed = 8675309
@@ -76,7 +112,7 @@ def create_environment(n_env):
 env, num_obs, num_actions = create_environment(n_env = 100)
 eval_env = CartPoleEnv()
 # eval_env = AcrobotEnv()
-agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 1000)
+agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 10000, ckpts_num=25, ckpt_dir=ckpt_path)
 agent.reset_experience_replay()
 
 #%%
@@ -88,9 +124,7 @@ reward_threshold = eval_env.max_steps-5
 running_reward = 0
 
 reward_metric = tf.keras.metrics.Mean('reward', dtype=tf.float32)
-current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-log_dir = 'logs/gradient_tape/' + save_name + '/' + current_time
-summary_writer = tf.summary.create_file_writer(log_dir)
+summary_writer = tf.summary.create_file_writer(train_log_path)
 
 batch_mean_reward: collections.deque = collections.deque(maxlen=min_episodes_criterion)
 tot_itr = 0
@@ -101,7 +135,7 @@ with tqdm.trange(max_episodes) as t:
             agent.take_n_steps(env, n_step)
             for _ in range(t_step):
                 #   agent.train()
-                agent.train_and_checkpoint()
+                agent.train_and_checkpoint(save_freq = 1000)
             
             if( i % 100 == 0 ):
                 if(True):
@@ -145,13 +179,13 @@ with tqdm.trange(max_episodes) as t:
                 break
     print(f'\nSolved at episode {i}: average reward: {running_reward:.2f}!')
 
-agent.actor.save('logs/models/'+save_name+'/actor_model')
-agent.critic.save('logs/models/'+save_name+'/critic_model')
+agent.actor.save(model_path + '/actor_model')
+agent.critic.save(model_path + '/critic_model')
 
 e_time = time.time()-start_time
 print('elapsed time = {}'.format(e_time))
 
-file = open('logs/models/'+save_name+'/info.txt', "w")
+file = open(test_path + '/info.txt', "w")
 text_too_write = 'runtime={}\ntotal_itr={}'.format(e_time, tot_itr)
 file.write(text_too_write)
 file.close()
@@ -168,9 +202,10 @@ file.close()
 # agent.critic = tf.keras.models.load_model('logs/models/critic_model')
 print(agent.manager.checkpoints) 
 #%%
-agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 1000)
+agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 1000, ckpts_num=25)
 
-agent.load_checkpoint('ckpt-98')
+agent.load_checkpoint(ckpt_path+'\ckpt-1')
+
 for _ in range(1):
     eval_env = CartPoleEnv()
     episode_reward = 0
@@ -202,10 +237,7 @@ for _ in range(1):
 from PIL import Image
 import moviepy.editor as mp
 from datetime import datetime
-try:
-    os.mkdir('logs/videos/'+save_name+'/')
-except OSError as error:
-    print(error)
+
     
 def render_episode(env: gym.Env, model: tf.keras.Model, max_steps: int, angle: float, velocity: float): 
       screen = eval_env.render(mode='rgb_array')
@@ -246,8 +278,8 @@ for v in [0, 1]:
         # Save GIF image
         images = render_episode(env, agent.actor, 100, angle=a, velocity=v)
         
-        image_file = 'logs/videos/'+save_name+'/a{}_v{}.gif'.format(a, v)
-        video_file = 'logs/videos/'+save_name+'/a{}_v{}.mp4'.format(a, v)
+        image_file = video_path + '/a{}_v{}.gif'.format(a, v)
+        video_file = video_path + '/a{}_v{}.mp4'.format(a, v)
         # loop=0: loop forever, duration=1: play each frame for 1ms
         images[0].save(
             image_file, save_all=True, append_images=images[1:], loop=0, duration=1)

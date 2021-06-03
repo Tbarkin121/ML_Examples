@@ -64,7 +64,7 @@ class CriticNet(tf.keras.Model):
     return self.c(x)
 
 class ACER():
-    def __init__(self, num_actions, num_obs, gamma = 0.99, batch_size = 128, n_steps=500, num_env=1, replay_buffer_size = 10000):
+    def __init__(self, num_actions, num_obs, gamma = 0.99, batch_size = 128, n_steps=500, num_env=1, replay_buffer_size = 10000, ckpts_num = 100, ckpt_dir = './ac_ckpts'):
         self.num_actions = num_actions
         self.num_obs = num_obs
         self.gamma = gamma
@@ -104,7 +104,7 @@ class ACER():
 
         # Checkpointing
         self.ckpt = tf.train.Checkpoint(step=tf.Variable(1), actor_optimizer=self.a_opt, actor_net=self.actor, critic_optimizer=self.c_opt, critic_net=self.critic)
-        self.manager = tf.train.CheckpointManager(self.ckpt, './ac_ckpts', max_to_keep=100)
+        self.manager = tf.train.CheckpointManager(self.ckpt, ckpt_dir, max_to_keep=ckpts_num)
 
           
     def act(self, state, deterministic=False):
@@ -303,17 +303,21 @@ class ACER():
                 print("Restored from {}".format(self.manager.latest_checkpoint))
             else:
                 print("Initializing from scratch.")
-        else:
+        try:
             #Try and load the specified checkpoint if it exists
             self.ckpt.restore(path)
             print("Restored from path {}".format(path))
+        except:
+            print("Checkpoint {} not found".format(path))
+            print("Initializing from scratch.")
+            
 
 
     def train_and_checkpoint(self, save_freq = 100):
         self.ckpt.step.assign_add(1)
         if int(self.ckpt.step) % save_freq == 0:
             save_path = self.manager.save()
-            print("Saved AC checkpoint for step {}: {}".format(int(self.ckpt.step), save_path))
+            # print("Saved AC checkpoint for step {}: {}".format(int(self.ckpt.step), save_path))
         
         self.train()
 
