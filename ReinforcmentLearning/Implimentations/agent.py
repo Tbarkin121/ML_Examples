@@ -4,7 +4,7 @@ from typing import Any, List, Sequence, Tuple
 from ExperienceReplay import ER_Buffer
 from collections import deque
 
-from ReplayBuffers import ExperienceReplay_Cartpole
+from ReplayBuffers import ExperienceReplay_Cartpole, ExperienceReplay
 import time
 
 import numpy as np
@@ -74,6 +74,7 @@ class ACER():
         #Setting up Experience Replay Buffer
         self.traj_length = tf.cast(replay_buffer_size/num_env, tf.int64)
         self.memory = ExperienceReplay_Cartpole(num_env, self.traj_length)
+        # self.memory = ExperienceReplay(num_env, self.traj_length)
 
         self.a_opt = tf.keras.optimizers.Adam(learning_rate=1e-3)
         self.c_opt = tf.keras.optimizers.Adam(learning_rate=1e-3)

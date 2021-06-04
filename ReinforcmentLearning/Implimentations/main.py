@@ -23,14 +23,14 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.utils import set_random_seed
 
 
-n_step=10
+n_step=1
 t_step=1
 min_episodes_criterion = 100
 max_episodes = 25000
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 log_dir = 'logs'
-test_name = 'Cartpole_n{}t{}'.format(n_step,t_step)
+test_name = 'Cartpole_n{}t{}_tmp'.format(n_step,t_step)
 test_path = os.path.join(log_dir, test_name)
 ckpt_path = os.path.join(test_path, 'ckpts')
 train_log_path = os.path.join(test_path, 'training_log', current_time)
@@ -202,9 +202,9 @@ file.close()
 # agent.critic = tf.keras.models.load_model('logs/models/critic_model')
 print(agent.manager.checkpoints) 
 #%%
-agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 1000, ckpts_num=25)
+agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 1000, ckpts_num=25, ckpt_dir=ckpt_path)
 
-agent.load_checkpoint(ckpt_path+'\ckpt-1')
+agent.load_checkpoint(ckpt_path+'\ckpt-2500')
 
 for _ in range(1):
     eval_env = CartPoleEnv()
