@@ -19,14 +19,14 @@ import random
 from modified_envs import CartPoleEnv, AcrobotEnv
 from agent import ACER
 
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize, VecFrameStack
 from stable_baselines3.common.utils import set_random_seed
-
+from stable_baselines3.common.env_util import make_atari_env
 
 n_step=1
 t_step=1
 min_episodes_criterion = 100
-max_episodes = 25000
+max_episodes = 3000000
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 log_dir = 'logs'
@@ -87,10 +87,14 @@ def make_env(rank, seed=0):
 
 # Create the environment
 
-def create_environment(n_env):
+def create_environment(n_envs):
 
-    env = DummyVecEnv([make_env(i, seed=seed) for i in range(n_env)])
+    # env = DummyVecEnv([make_env(i, seed=seed) for i in range(n_env)])
     # env = VecNormalize(env, norm_obs=True, norm_reward=False, clip_obs=10.)
+    env_id  = 'PongNoFrameskip-v4'
+    env = make_atari_env(env_id, n_envs=n_envs, seed=0)
+    env = VecFrameStack(env, n_stack=4)
+    env.reset()
 
     num_obs = env.observation_space.shape[0]
     num_actions = env.action_space.n
@@ -109,9 +113,12 @@ def create_environment(n_env):
     return env, num_obs, num_actions
 #%%
 
-env, num_obs, num_actions = create_environment(n_env = 100)
-eval_env = CartPoleEnv()
-# eval_env = AcrobotEnv()
+env, num_obs, num_actions = create_environment(n_envs = 8)
+
+eval_env = make_atari_env('PongNoFrameskip-v4', n_envs=1, seed=0)
+eval_env = VecFrameStack(eval_env, n_stack=4)
+eval_env.reset()
+
 agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 10000, ckpts_num=25, ckpt_dir=ckpt_path)
 agent.reset_experience_replay()
 
@@ -123,7 +130,7 @@ with tf.device('/gpu:0'):
     agent.fill_experience_replay(env)
     
     
-    reward_threshold = eval_env.max_steps-5
+    reward_threshold = 20
     running_reward = 0
     
     reward_metric = tf.keras.metrics.Mean('reward', dtype=tf.float32)
@@ -143,13 +150,15 @@ with tf.device('/gpu:0'):
                 if( i % 1000 == 0 ):
                     if(True):
                         episode_reward = 0
-                        
-                        state = eval_env.reset()
-                        state = tf.expand_dims(state, 0)
+                        # action_t1_test = np.zeros(self.num_env, dtype=int)
+
+                        state = tf.expand_dims(tf.cast(eval_env.reset(), tf.float32), 0)
                         for _ in range(1000):
                             action = agent.act(state, deterministic=True)
-                            state, reward, done, _ = eval_env.step(action.numpy())
-                            state = tf.expand_dims(state, 0)
+                            state, reward, done, _ = eval_env.step([action.numpy()])
+
+
+                            state = tf.expand_dims(tf.cast(state, tf.float32), 0)
                             episode_reward += reward
                             # eval_env.render()
                             if (tf.cast(done, tf.bool)):
@@ -158,10 +167,10 @@ with tf.device('/gpu:0'):
                         # eval_env.close()
                         # print(episode_reward)
     
-                        tf.summary.scalar('episode_reward', episode_reward, step=i)
+                        tf.summary.scalar('episode_reward', episode_reward[0], step=i)
                         # print(episode_reward)
                         
-                if( i % 10 == 0 ):
+                if( i % 1000 == 0 ):
                     tf.summary.scalar('actor_loss', agent.actor_loss_metric.result(), step=i)
                     tf.summary.scalar('critic_loss', agent.critic_loss_metric.result(), step=i)
                     agent.actor_loss_metric.reset_states()
@@ -211,14 +220,16 @@ agent = ACER(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay
 agent.load_checkpoint()
 
 for _ in range(1):
-    eval_env = CartPoleEnv()
+    eval_env = make_atari_env('PongNoFrameskip-v4', n_envs=1, seed=0)
+    eval_env = VecFrameStack(eval_env, n_stack=4)
+    eval_env.reset()
     episode_reward = 0
     
-    state_tmp = [0, 0, 5*np.pi/180, 0.]
-    eval_env.set_state(state_tmp)
-    state = tf.constant(state_tmp)
+    # state_tmp = [0, 0, 5*np.pi/180, 0.]
+    # eval_env.set_state(state_tmp)
+    # state = tf.constant(state_tmp)
     
-    # state = eval_env.reset()
+    state = eval_env.reset()
     state = tf.expand_dims(state, 0)
     
     logits = agent.actor(state)
@@ -274,7 +285,8 @@ def render_episode(env: gym.Env, model: tf.keras.Model, max_steps: int, angle: f
 for v in [0, 1]: 
     for a in [10, 15, 20]:
         
-        eval_env = CartPoleEnv()
+        eval_env = make_atari_env('PongNoFrameskip-v4', n_envs=1, seed=0)
+        eval_env = VecFrameStack(eval_env, n_stack=4)
         eval_env.reset()
         # screen = eval_env.render(mode='rgb_array')
         # print(screen)
