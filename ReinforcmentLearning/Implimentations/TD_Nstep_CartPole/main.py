@@ -23,15 +23,15 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 from stable_baselines3.common.utils import set_random_seed
 
 
-n_step=1
+n_step=5
 t_step=1
-lam = 0.5
+lam = 0.0
 min_episodes_criterion = 100
-max_episodes = 100000
+max_episodes = 50000
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 log_dir = 'logs'
-test_name = 'Cartpole_n{}t{}_lam{}'.format(n_step,t_step,lam)
+test_name = 'Cartpole_n{}t{}_tmp{}'.format(n_step,t_step,lam)
 test_path = os.path.join(log_dir, test_name)
 ckpt_path = os.path.join(test_path, 'ckpts')
 train_log_path = os.path.join(test_path, 'training_log', current_time)
@@ -106,10 +106,10 @@ def create_environment(n_env):
 #%%
 start_time = time.time()
 
-env, num_obs, num_actions = create_environment(n_env = 1)
+env, num_obs, num_actions = create_environment(n_env = 100)
 eval_env = CartPoleEnv()
 # eval_env = AcrobotEnv()
-agent = TDLambda(num_actions, num_obs, batch_size=1, num_env=env.num_envs, replay_buffer_size = 100, ckpts_num=25, ckpt_dir=ckpt_path, lam=lam)
+agent = TDLambda(num_actions, num_obs, n_steps=n_step, batch_size=100, num_env=env.num_envs, replay_buffer_size = 10000, ckpts_num=25, ckpt_dir=ckpt_path, lam=lam)
 # agent.actor = tf.keras.models.load_model(model_path + '/actor_model')
 agent.reset_experience_replay()
 agent.fill_experience_replay(env)
@@ -134,7 +134,7 @@ with tf.device('/gpu:0'):
     with tqdm.trange(max_episodes) as t:
         with summary_writer.as_default():
             for i in t:
-                agent.take_n_steps(env, n_step)
+                agent.take_n_steps(env, 1)
                 for _ in range(t_step):
                     #   agent.train()
                     agent.train_and_checkpoint(save_freq = 1000)
@@ -176,7 +176,8 @@ with tf.device('/gpu:0'):
                 t.set_postfix(batch_mean_end_reward=batch_mean_end_reward, episode_reward=episode_reward, running_reward=running_reward)
                 tot_itr=i+1
                 if running_reward > reward_threshold and i >= min_episodes_criterion:
-                    break
+                    # break
+                    pass
         print(f'\nSolved at episode {i}: average reward: {running_reward:.2f}!')
     
     agent.actor.save(model_path + '/actor_model')
@@ -192,8 +193,8 @@ with tf.device('/gpu:0'):
 #%%
 print(agent.manager.checkpoints) 
 #%%
-agent = TDLambda(num_actions, num_obs, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 1000, ckpts_num=25, ckpt_dir=ckpt_path, lam=lam)
-#agent.load_checkpoint(ckpt_path+'\ckpt-2500')
+agent = TDLambda(num_actions, num_obs, n_steps=n_step, batch_size=1000, num_env=env.num_envs, replay_buffer_size = 10000, ckpts_num=25, ckpt_dir=ckpt_path, lam=lam)
+# agent.load_checkpoint(ckpt_path+'\ckpt-19')
 agent.load_checkpoint()
 
 for _ in range(1):
@@ -227,7 +228,6 @@ for _ in range(1):
 from PIL import Image
 import moviepy.editor as mp
 from datetime import datetime
-
     
 def render_episode(env: gym.Env, model: tf.keras.Model, max_steps: int, angle: float, velocity: float): 
       screen = eval_env.render(mode='rgb_array')
@@ -257,8 +257,8 @@ def render_episode(env: gym.Env, model: tf.keras.Model, max_steps: int, angle: f
     
       return images
 
-for v in [0, 1]: 
-    for a in [10, 15, 20]:
+for v in [0, -0.8]: 
+    for a in [35]:
         
         eval_env = CartPoleEnv()
         eval_env.reset()
@@ -271,8 +271,7 @@ for v in [0, 1]:
         image_file = video_path + '/a{}_v{}.gif'.format(a, v)
         video_file = video_path + '/a{}_v{}.mp4'.format(a, v)
         # loop=0: loop forever, duration=1: play each frame for 1ms
-        images[0].save(
-            image_file, save_all=True, append_images=images[1:], loop=0, duration=1)
+        images[0].save(image_file, save_all=True, append_images=images[1:], loop=0, duration=1)
         clip = mp.VideoFileClip(image_file)
         clip.write_videofile(video_file)
         eval_env.close()
