@@ -59,8 +59,8 @@ class CriticNet(tf.keras.Model):
     x = self.lr1(x)
     x = self.d2(x)
     x = self.lr2(x)
-    x = self.d3(x)
-    x = self.lr3(x)
+    # x = self.d3(x)
+    # x = self.lr3(x)
     return self.c(x)
 
 class ACER():
